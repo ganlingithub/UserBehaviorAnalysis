@@ -60,7 +60,20 @@ public class HotItemsWithSql {
         Table resultTable = tableEnv.sqlQuery("select * from " +
                 "(select *,ROW_NUMBER() over (partition by windowEnd order by cnt desc) as row_num " +
                 "from agg ) temp where row_num<=5");
-        tableEnv.toRetractStream(resultTable,Row.class).print();
+
+        //纯sql实现
+        tableEnv.createTemporaryView("data_table",dataStream,"itemId,behavior,timestamp.rowtime as ts");
+        Table resultSqlTable = tableEnv.sqlQuery("select * from " +
+                "(select *,ROW_NUMBER() over (partition by windowEnd order by cnt desc) as row_num " +
+                "from (" +
+                " select itemId,count(itemId) as cnt,HOP_END(ts,interval '5' minute,interval '1' hour) as windowEnd" +
+                " from data_table " +
+                " where behavior = 'pv'" +
+                " group by itemId,HOP(ts,interval '5' minute,interval '1' hour)"+
+                ") ) temp where row_num<=5");
+
+        //tableEnv.toRetractStream(resultTable,Row.class).print();
+        tableEnv.toRetractStream(resultSqlTable,Row.class).print();
         env.execute("hot items with sql job");
     }
 }
