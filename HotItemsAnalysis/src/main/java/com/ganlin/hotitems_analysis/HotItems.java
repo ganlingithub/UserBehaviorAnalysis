@@ -128,7 +128,7 @@ public class HotItems {
             resultBuilder.append("===========================");
             resultBuilder.append("窗口结束时间").append(new Timestamp(timestamp-1)).append("\n");
             //遍历列表取topn
-            for(int i=0;i<5&&i<topSize;++i){
+            for(int i=0;i<itemViewCounts.size()&&i<topSize;++i){
                 ItemViewCount cur = itemViewCounts.get(i);
                 resultBuilder.append("No ").append(i+1).append(":")
                         .append("商品ID = ").append(cur.getItemId())
