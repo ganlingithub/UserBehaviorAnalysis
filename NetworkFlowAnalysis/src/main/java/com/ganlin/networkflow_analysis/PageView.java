@@ -19,6 +19,7 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
 
+import java.net.URL;
 import java.util.Random;
 
 
@@ -31,8 +32,9 @@ public class PageView {
         env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 
         //2.读取数据，创建DataStream数据流
-        PageView.class.getResource("/UserBehavior.csv");
-        DataStream<String> inputStream = env.readTextFile("D:\\ganlin10\\Desktop\\waterdrop\\UserBehaviorAnalysis\\NetworkFlowAnalysis\\src\\main\\resources\\UserBehavior.csv");
+        //System.out.println(PageView.class.getResource("/UserBehavior1.csv"));
+        URL resource = PageView.class.getResource("/UserBehavior1.csv");
+        DataStream<String> inputStream = env.readTextFile(resource.getPath());
 
         //3.转换成对应pojo类型，分配时间戳和watermark
         DataStream<UserBehavior> dataStream = inputStream
