@@ -142,7 +142,7 @@ public class UvWithBloomFilter {
                 //更新redis中的count值
                 Long uvCount = 0L;
                 String uvCountString = jedis.hget(countHashName, countKey);
-                if(uvCountString != null && "".equals(uvCountString)){
+                if(uvCountString != null && !"".equals(uvCountString)){
                     uvCount = Long.valueOf(uvCountString);
                 }
                 jedis.hset(countHashName,countKey,String.valueOf(uvCount+1));
