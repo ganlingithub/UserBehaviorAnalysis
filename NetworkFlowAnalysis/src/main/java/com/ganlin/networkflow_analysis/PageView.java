@@ -4,11 +4,15 @@ import com.ganlin.networkflow_analysis.beans.PageViewCount;
 import com.ganlin.networkflow_analysis.beans.UserBehavior;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
 import org.apache.flink.streaming.api.windowing.time.Time;
@@ -67,7 +71,9 @@ public class PageView {
                 .aggregate(new PvCountAgg(),new PvCountResult());
         //将各分区数据汇总起来
         SingleOutputStreamOperator<PageViewCount> pvResultStream2 = pvStream.keyBy(PageViewCount::getWindowEnd)
-                .sum("count");
+                .process(new TotalPvCount());
+
+        //.sum("count");
         pvResultStream.print("2");
         pvResultStream.print("1");
         env.execute("pv count job");
@@ -101,4 +107,30 @@ public class PageView {
             out.collect(new PageViewCount(integer.toString(),window.getEnd(),input.iterator().next()));
         }
     }
+    //实现自定义处理函数，把相同窗口分组统计的count值叠加
+    public static class TotalPvCount extends KeyedProcessFunction<Long,PageViewCount,PageViewCount>{
+        //定义状态，保存当前的总count值
+        ValueState<Long> totalCountState;
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            totalCountState = getRuntimeContext().getState(new ValueStateDescriptor<Long>("total-cnt",Long.class,0L));
+        }
+
+        @Override
+        public void processElement(PageViewCount value, Context ctx, Collector<PageViewCount> collector) throws Exception {
+            totalCountState.update(totalCountState.value()+value.getCount());
+            ctx.timerService().registerEventTimeTimer(value.getWindowEnd()+1);
+        }
+
+        @Override
+        public void onTimer(long timestamp, OnTimerContext ctx, Collector<PageViewCount> out) throws Exception {
+            //定时器触发时，所有分组count值都到期，直接输出当前总count数量
+            Long totalCount = totalCountState.value();
+            out.collect(new PageViewCount("pv",ctx.getCurrentKey(),totalCount));
+            //清空状态
+            totalCountState.clear();
+        }
+    }
+
 }
