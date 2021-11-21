@@ -1,31 +1,22 @@
 package com.ganlin.networkflow_analysis;
 
-import com.ganlin.networkflow_analysis.beans.ApacheLogEvent;
 import com.ganlin.networkflow_analysis.beans.PageViewCount;
 import com.ganlin.networkflow_analysis.beans.UserBehavior;
-import org.apache.commons.compress.utils.Lists;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.common.state.ListState;
-import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
 
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.regex.Pattern;
+import java.util.Random;
+
 
 public class PageView {
     public static void main(String[] args) throws Exception{
@@ -62,7 +53,52 @@ public class PageView {
                 .keyBy(0)//按照商品id分组
                 .timeWindow(Time.hours(1))//开1小时滚动窗口
                 .sum(1);
-        pvResultStream.print();
+        //并行任务改进，设计随机key，解决数据倾斜问题
+        SingleOutputStreamOperator<PageViewCount> pvStream=dataStream.filter(data -> "pv".equals(data.getBehavior()))
+                .map(new MapFunction<UserBehavior, Tuple2<Integer,Long>>() {
+                    @Override
+                    public Tuple2<Integer, Long> map(UserBehavior userBehavior) throws Exception {
+                        Random random = new Random();
+                        return new Tuple2<>(random.nextInt(10),1L);
+                    }
+                })
+                .keyBy(data -> data.f0)
+                .timeWindow(Time.hours(1))
+                .aggregate(new PvCountAgg(),new PvCountResult());
+        //将各分区数据汇总起来
+        SingleOutputStreamOperator<PageViewCount> pvResultStream2 = pvStream.keyBy(PageViewCount::getWindowEnd)
+                .sum("count");
+        pvResultStream.print("2");
+        pvResultStream.print("1");
         env.execute("pv count job");
+    }
+    //实现自定义增量聚合函数
+    public static class PvCountAgg implements AggregateFunction<Tuple2<Integer,Long>,Long,Long> {
+        @Override
+        public Long createAccumulator() {
+            return 0L;
+        }
+
+        @Override
+        public Long add(Tuple2<Integer,Long> tuple2, Long accumulator) {
+            return accumulator+1;
+        }
+
+        @Override
+        public Long getResult(Long accumulator) {
+            return accumulator;
+        }
+
+        @Override
+        public Long merge(Long accumulator1, Long accumulator2) {
+            return accumulator1+accumulator2;
+        }
+    }
+    //自定义全窗口函数
+    public static class PvCountResult implements WindowFunction<Long,PageViewCount, Integer, TimeWindow> {
+        @Override
+        public void apply(Integer integer, TimeWindow window, Iterable<Long> input, Collector<PageViewCount> out) {
+            out.collect(new PageViewCount(integer.toString(),window.getEnd(),input.iterator().next()));
+        }
     }
 }
