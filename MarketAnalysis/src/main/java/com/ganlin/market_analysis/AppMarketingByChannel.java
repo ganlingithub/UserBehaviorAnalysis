@@ -45,6 +45,7 @@ public class AppMarketingByChannel {
                 .aggregate(new MarketingCountAgg(), new MarketCountResult());
         resultStream.print();
 
+
         env.execute("app marketing by channel job");
 
     }
