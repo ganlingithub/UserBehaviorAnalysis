@@ -18,6 +18,7 @@ import org.apache.flink.util.Collector;
 
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Iterator;
 
 
 public class LoginFail {
@@ -51,14 +52,13 @@ public class LoginFail {
                 .process(new LoginFailDetectWarning(2));
         warningStream.print();
         env.execute("login fail detect job");
-
     }
     //实现自定义KeyedProcessFunction
-    public static class LoginFailDetectWarning extends KeyedProcessFunction<Long,LoginEvent, LoginFailWarning>{
+    public static class LoginFailDetectWarning0 extends KeyedProcessFunction<Long,LoginEvent, LoginFailWarning>{
         //定义失败阈值
         private Integer maxFailTimes;
 
-        public LoginFailDetectWarning(Integer maxFailTimes) {
+        public LoginFailDetectWarning0(Integer maxFailTimes) {
             this.maxFailTimes = maxFailTimes;
         }
         //定义状态:保存2秒内登录失败次数
@@ -111,6 +111,49 @@ public class LoginFail {
             //清空状态
             loginFailEventListState.clear();
             timerTsState.clear();
+        }
+    }
+    public static class LoginFailDetectWarning extends KeyedProcessFunction<Long,LoginEvent, LoginFailWarning>{
+        //定义失败阈值
+        private Integer maxFailTimes;
+
+        public LoginFailDetectWarning(Integer maxFailTimes) {
+            this.maxFailTimes = maxFailTimes;
+        }
+        //定义状态:保存2秒内登录失败次数
+        ListState<LoginEvent> loginFailEventListState;
+
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            loginFailEventListState = getRuntimeContext().getListState(new ListStateDescriptor<LoginEvent>("login-fail-list",LoginEvent.class));
+        }
+        //以登录事件作为判断报警的触发条件，不再注册定时器
+        @Override
+        public void processElement(LoginEvent loginEvent, Context context, Collector<LoginFailWarning> collector) throws Exception {
+            //判断当前事件登录状态
+            if("fail".equals(loginEvent.getLoginState())){
+                //1.如果登录失败，获取之前状态，判断是否有登录失败
+                Iterator<LoginEvent> iterator = loginFailEventListState.get().iterator();
+                if(iterator.hasNext()){
+                    //1.1如果已经有登录失败事件，判断时间戳是否再2秒之内
+                    //获取已有的登录失败事件
+                    LoginEvent firstFailEvent = iterator.next();
+                    if(loginEvent.getTimestamp()-firstFailEvent.getTimestamp()<=2){
+                       //1.1.1如果再2秒之内，输出报警
+                        collector.collect(new LoginFailWarning(loginEvent.getUserId(),firstFailEvent.getTimestamp(),loginEvent.getTimestamp(),"login fail 2 times in 2s"));
+                    }
+                    //不管报警是否更新状态
+                    loginFailEventListState.clear();
+                    loginFailEventListState.add(loginEvent);
+                }else{
+                    //1.2如果没有将当前时间存入ListState
+                    loginFailEventListState.add(loginEvent);
+                }
+            }else{
+                //2.登录成功,清空状态
+                loginFailEventListState.clear();
+            }
         }
     }
 }
